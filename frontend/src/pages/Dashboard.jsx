@@ -1,10 +1,109 @@
 import React, { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Shield, Cpu, Heart, Thermometer, CloudRain, Clock, AlertOctagon } from "lucide-react";
 import StatusCard from "../components/StatusCard";
 import CameraFeed from "../components/CameraFeed";
 import ActivityLog from "../components/ActivityLog";
 import Analytics from "../components/Analytics";
+
+// Detection Status Banner component
+function DetectionStatusBanner({ userPresent, pcLocked, absenceTimer, detectionConfidence = 98, cameraStatus }) {
+  return (
+    <AnimatePresence mode="wait">
+      {pcLocked ? (
+        <motion.div
+          key="locked"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          className="rounded-xl glass-panel border-rose-500/30 bg-rose-950/20 p-4 flex items-center justify-between shadow-lg"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-2 w-2 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+            </span>
+            <div className="text-left">
+              <h4 className="text-xs font-bold text-rose-450 uppercase tracking-wider flex items-center gap-1.5">
+                <span>🔒 WORKSTATION LOCKED</span>
+              </h4>
+              <p className="text-[10px] text-slate-455 mt-0.5 font-medium">The workstation is locked. Operator identity check failed.</p>
+              <div className="text-[9px] font-mono text-rose-400 mt-1 font-bold">Confidence: 0%</div>
+            </div>
+          </div>
+        </motion.div>
+      ) : cameraStatus === "Multiple Persons" ? (
+        <motion.div
+          key="multiple"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          className="rounded-xl glass-panel border-amber-500/30 bg-amber-950/15 p-4 flex items-center justify-between shadow-lg"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-2 w-2 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+            </span>
+            <div className="text-left">
+              <h4 className="text-xs font-bold text-amber-450 uppercase tracking-wider">⚠ Multiple Users Detected</h4>
+              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Multiple operator silhouettes detected in terminal viewport.</p>
+              <div className="text-[9px] font-mono text-amber-400 mt-1 font-bold">Confidence: {Math.round(detectionConfidence)}%</div>
+            </div>
+          </div>
+        </motion.div>
+      ) : userPresent ? (
+        <motion.div
+          key="detected"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          className="rounded-xl glass-panel border-emerald-500/30 bg-emerald-950/10 p-4 flex items-center justify-between shadow-lg"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-2 w-2 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <div className="text-left">
+              <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">🟢 USER DETECTED</h4>
+              <p className="text-[10px] text-slate-455 mt-0.5 font-medium">Guardian AI detected the user.</p>
+              <p className="text-[10px] text-slate-455 mt-0.5 font-medium">Monitoring Active.</p>
+              <div className="text-[9px] font-mono text-emerald-400 mt-1 font-bold">Confidence: {Math.round(detectionConfidence)}%</div>
+            </div>
+          </div>
+        </motion.div>
+      ) : (
+        <motion.div
+          key="absent"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          className="rounded-xl glass-panel border-rose-500/30 bg-rose-950/15 p-4 flex items-center justify-between shadow-lg"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-2 w-2 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+            </span>
+            <div className="text-left">
+              <h4 className="text-xs font-bold text-rose-450 uppercase tracking-wider">🔴 NO USER FOUND</h4>
+              <p className="text-[10px] text-slate-450 mt-0.5 font-medium">
+                Waiting for user...
+              </p>
+              {absenceTimer > 0 && (
+                <p className="text-[9px] text-slate-500 mt-0.5 font-mono">
+                  Absent for {absenceTimer} seconds. System will lock after 50 seconds.
+                </p>
+              )}
+              <div className="text-[9px] font-mono text-rose-400 mt-1 font-bold">Confidence: 0%</div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 export default function Dashboard({ 
   logs, 
@@ -16,7 +115,10 @@ export default function Dashboard({
   cameraStatus,
   loading,
   error,
-  onDetectionChange
+  onDetectionChange,
+  absenceTimer = 0,
+  isCounting = false,
+  detectionConfidence = 98
 }) {
   const [uptime, setUptime] = useState("00h 00m 00s");
 
@@ -144,7 +246,7 @@ export default function Dashboard({
         <StatusCard
           type="pc"
           title="Console Policy"
-          value={pcLocked ? "Interface Locked" : "Interface Free"}
+          value={pcLocked ? "Locked" : "Unlocked"}
           statusText={pcLocked ? "Protected" : "Unlocked"}
           statusType={pcLocked ? "danger" : "success"}
           trendData={pcLocked ? [5, 5, 5, 100, 100, 100, 100] : [100, 100, 100, 100, 5, 5, 5]}
@@ -153,9 +255,9 @@ export default function Dashboard({
         <StatusCard
           type="monitoring"
           title="AI Shield Status"
-          value="Monitoring Active"
-          statusText="API Connected"
-          statusType="success"
+          value={pcLocked ? "Lock Mode" : "Monitoring Active"}
+          statusText={pcLocked ? "System Locked" : "API Connected"}
+          statusType={pcLocked ? "danger" : "success"}
           trendData={[99, 98, 99, 99, 98, 99, 98.8]}
         />
 
@@ -171,12 +273,19 @@ export default function Dashboard({
 
       {/* Grid: Left camera, Right diagnostics metrics */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <div className="lg:col-span-8 space-y-1.5">
+        <div className="lg:col-span-8 space-y-3">
           <div className="flex items-center justify-between px-1">
             <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Sensor Camera Viewport
             </h4>
           </div>
+          <DetectionStatusBanner 
+            userPresent={userPresent} 
+            pcLocked={pcLocked} 
+            absenceTimer={absenceTimer} 
+            detectionConfidence={detectionConfidence}
+            cameraStatus={cameraStatus}
+          />
           <CameraFeed 
             isSimulating={settings.isSimulating} 
             confidenceThreshold={settings.confidenceThreshold}

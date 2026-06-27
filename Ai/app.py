@@ -1,4 +1,5 @@
-﻿import ctypes
+import base64
+import ctypes
 import os
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
@@ -34,6 +35,46 @@ def append_activity_log(message: str) -> None:
             handle.write(f"{datetime.utcnow().isoformat()}Z | {message}\n")
     except Exception:
         pass
+
+
+@app.post('/detect')
+def detect_frame(payload: dict):
+    frame_b64 = payload.get('frame')
+    if not frame_b64:
+        raise HTTPException(status_code=400, detail="Missing frame")
+
+    if ',' in frame_b64:
+        frame_b64 = frame_b64.split(',')[1]
+
+    try:
+        frame_bytes = base64.b64decode(frame_b64)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid base64 frame data: {exc}")
+
+    analysis = analyze_frame(frame_bytes)
+    update_presence(state, analysis, settings.absence_timeout_seconds)
+
+    locked = False
+    if state.current_mode == 'lock_pc' and settings.lock_on_absence:
+        locked = lock_workstation()
+        append_activity_log(f'Locked workstation: success={locked}')
+    else:
+        append_activity_log(f"Monitoring user: present={analysis.get('person_present', False)}")
+
+    conf = analysis.get('confidence', 0.0)
+    # Convert fractional confidence (0.0 - 1.0) to percentage (0 - 100) for frontend
+    if conf <= 1.0:
+        conf = conf * 100.0
+
+    return {
+        'detected': analysis.get('person_present', False),
+        'confidence': conf,
+        'label': 'Prajyesh (Admin)' if analysis.get('person_present', False) else 'None',
+        'multiplePersons': False,
+        'inferenceTimeMs': 45,
+        'action': state.current_mode,
+        'locked': locked,
+    }
 
 
 @app.get('/sense')
@@ -74,6 +115,7 @@ def status():
 def root():
     return {
         'service': 'Guardian AI',
-        'message': 'The API is running. Use /sense or /status.',
-        'endpoints': ['/sense', '/status', '/docs'],
+        'message': 'The API is running. Use /sense, /status or /detect.',
+        'endpoints': ['/sense', '/status', '/detect', '/docs'],
     }
+

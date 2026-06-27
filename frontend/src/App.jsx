@@ -35,6 +35,60 @@ export default function App() {
   const [cameraStatus, setCameraStatus] = useState("Present");
   const [systemMetrics, setSystemMetrics] = useState({ cpu: 14, memory: 54, uptimeSeconds: 9858 });
 
+  const [absenceTimer, setAbsenceTimer] = useState(0);
+  const [isCounting, setIsCounting] = useState(false);
+  const [detectionConfidence, setDetectionConfidence] = useState(98.4);
+
+
+  const triggerWorkstationLock = async () => {
+    setIsCounting(false);
+    setPcLocked(true);
+    
+    // Add logs & notifications
+    addNotificationLog(
+      "PC Locked",
+      "Workstation Locked",
+      "alert",
+      "lock"
+    );
+
+    // Call lock API
+    await apiService.lockPC();
+
+    // Add log & notification for telegram alert
+    addNotificationLog(
+      "Telegram notification sent",
+      "Telegram Alert Sent",
+      "telegram",
+      "telegram"
+    );
+
+    await apiService.sendTelegramAlert({
+      chatId: settings.telegramChatId,
+      token: settings.telegramToken,
+      message: `🚨 GUARDIAN AI SECURITY ALERT: Operator left workstation. Console auto-locked.`
+    });
+  };
+
+  useEffect(() => {
+    let interval = null;
+    if (isCounting && !pcLocked) {
+      interval = setInterval(() => {
+        setAbsenceTimer((prev) => {
+          if (prev >= 49) {
+            triggerWorkstationLock();
+            return 50;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isCounting, pcLocked]);
+
+
   const [notifications, setNotifications] = useState([]);
   const [logs, setLogs] = useState([]);
   const [toasts, setToasts] = useState([]);
@@ -173,86 +227,65 @@ export default function App() {
   }, []);
 
   const handleDetectionChange = async ({ status, confidence, label }) => {
+    setDetectionConfidence(confidence);
     if (status === cameraStatus) return;
 
     setCameraStatus(status);
 
-    if (status === "Absent") {
+    if (status === "Absent" || status === "Unknown" || status === "Multiple Persons") {
       setUserPresent(false);
+      setAbsenceTimer(0);
+      setIsCounting(true);
+
+      // Notification & Log: User Not Detected / User Absent
       addNotificationLog(
-        "Operator Absent", 
-        "Active user presence lost. Station console lock warning queued.", 
-        "warn", 
+        "User absent",
+        "User Not Detected",
+        "warn",
         "threat"
       );
 
-      if (settings.lockOnAbsence) {
-        setPcLocked(true);
-        await apiService.lockPC();
-        
-        addNotificationLog(
-          "Console Locked", 
-          "Workstation console auto-locked. Enforcing absence shielding.", 
-          "alert", 
-          "lock"
-        );
-
-        await apiService.sendTelegramAlert({
-          chatId: settings.telegramChatId,
-          token: settings.telegramToken,
-          message: `🚨 GUARDIAN AI SECURITY ALERT: Operator left workstation. Console auto-locked.`
-        });
-      }
+      // Notification & Log: Countdown Started
+      addNotificationLog(
+        "Countdown started",
+        "Countdown Started",
+        "info",
+        "system"
+      );
     } 
     else if (status === "Present") {
       setUserPresent(true);
+      setIsCounting(false);
+      setAbsenceTimer(0);
+
+      // Notification & Log: User detected
+      addNotificationLog(
+        "User detected",
+        "User Detected",
+        "success",
+        "system"
+      );
+
       if (pcLocked) {
         setPcLocked(false);
         await apiService.unlockPC();
         
+        // Notification & Log: User Returned / Operator restored
         addNotificationLog(
-          "Console Unlocked", 
-          "Operator identity confirmed. Station restored.", 
-          "success", 
+          "User Returned",
+          "User Returned",
+          "success",
           "system"
         );
-      } else {
-        addToast("Operator Confirmed", "Operator biometric signature verified.", "success");
       }
-    } 
-    else if (status === "Multiple Persons") {
-      setPcLocked(true);
-      await apiService.lockPC();
-      
-      addNotificationLog(
-        "Breach Detected", 
-        "Multiple operator silhouettes detected in terminal viewport. Console locked.", 
-        "alert", 
-        "threat"
-      );
 
-      await apiService.sendTelegramAlert({
-        chatId: settings.telegramChatId,
-        token: settings.telegramToken,
-        message: `🚨 GUARDIAN AI SECURITY ALERT: Multiple operators detected. Station locked immediately.`
-      });
-    } 
-    else if (status === "Unknown") {
-      setPcLocked(true);
-      await apiService.lockPC();
-      
+      // Notification & Log: Monitoring Resumed
       addNotificationLog(
-        "Breach Detected", 
-        `Unknown biometric profile detected (Match: ${confidence}%). Console locked.`, 
-        "alert", 
-        "threat"
+        "Monitoring resumed",
+        "Monitoring resumed.",
+        "success",
+        "system"
       );
-
-      await apiService.sendTelegramAlert({
-        chatId: settings.telegramChatId,
-        token: settings.telegramToken,
-        message: `🚨 GUARDIAN AI SECURITY ALERT: Unknown operator biometric scan breach. Console locked.`
-      });
     }
   };
 
@@ -353,6 +386,9 @@ export default function App() {
                         loading={loading}
                         error={error}
                         onDetectionChange={handleDetectionChange}
+                        absenceTimer={absenceTimer}
+                        isCounting={isCounting}
+                        detectionConfidence={detectionConfidence}
                       />
                     </motion.div>
                   } 
@@ -380,6 +416,9 @@ export default function App() {
                         loading={loading}
                         error={error}
                         onDetectionChange={handleDetectionChange}
+                        absenceTimer={absenceTimer}
+                        isCounting={isCounting}
+                        detectionConfidence={detectionConfidence}
                       />
                     </motion.div>
                   } 
@@ -402,6 +441,9 @@ export default function App() {
                         loading={loading}
                         error={error}
                         onDetectionChange={handleDetectionChange}
+                        absenceTimer={absenceTimer}
+                        isCounting={isCounting}
+                        detectionConfidence={detectionConfidence}
                       />
                     </motion.div>
                   } 
@@ -424,6 +466,9 @@ export default function App() {
                         loading={loading}
                         error={error}
                         onDetectionChange={handleDetectionChange}
+                        absenceTimer={absenceTimer}
+                        isCounting={isCounting}
+                        detectionConfidence={detectionConfidence}
                       />
                     </motion.div>
                   } 

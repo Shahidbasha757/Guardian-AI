@@ -21,6 +21,12 @@ export default function CameraFeed({
   const [inferenceTime, setInferenceTime] = useState(42);
   const [lastDetectionTime, setLastDetectionTime] = useState("Never");
   const [boxCoords, setBoxCoords] = useState({ top: "25%", left: "30%", width: "40%", height: "50%" });
+  const [faceDetected, setFaceDetected] = useState(false);
+  const [localConfidence, setLocalConfidence] = useState(98.4);
+
+  // Debouncing / stabilization history buffer
+  const detectionHistoryRef = useRef([]);
+  const lastStableStateRef = useRef("PRESENT");
 
   const toggleCamera = () => {
     setIsCameraOn(!isCameraOn);
@@ -45,60 +51,174 @@ export default function CameraFeed({
       const res = await apiService.uploadFaceFrame(base64Frame);
       if (res && res.data) {
         const detection = res.data;
-        
-        if (isSimulating) {
-          const base = 97.2;
-          const offset = (Math.random() * 2.4 - 1.2);
-          const finalConf = +(base + offset).toFixed(1);
-          setConfidence(finalConf);
-          setInferenceTime(Math.round(40 + Math.random() * 6));
-          
-          if (finalConf < confidenceThreshold) {
-            setTrackingState("ALERT");
-            setDetectedUser("UNKNOWN ENTITY");
-            onDetectionChange({ status: "Unknown", confidence: finalConf, label: "Unknown Entity" });
-          } else {
-            setTrackingState("SECURE");
-            setDetectedUser("Prajyesh (Admin)");
-            onDetectionChange({ status: "Present", confidence: finalConf, label: "Prajyesh (Admin)" });
-          }
-        } else {
-          setConfidence(detection.confidence);
-          setInferenceTime(detection.inferenceTimeMs || 45);
-          
-          if (detection.multiplePersons) {
-            setTrackingState("ALERT");
-            setDetectedUser("MULTIPLE PERSONS DETECTED");
-            onDetectionChange({ status: "Multiple Persons", confidence: detection.confidence, label: "Multiple Entities" });
-          } else if (!detection.detected) {
-            setTrackingState("ALERT");
-            setDetectedUser("USER ABSENT");
-            onDetectionChange({ status: "Absent", confidence: 0, label: "None" });
-          } else if (detection.confidence < confidenceThreshold) {
-            setTrackingState("ALERT");
-            setDetectedUser("UNKNOWN ENTITY");
-            onDetectionChange({ status: "Unknown", confidence: detection.confidence, label: "Unknown" });
-          } else {
-            setTrackingState("SECURE");
-            setDetectedUser(detection.label || "Authorized User");
-            onDetectionChange({ status: "Present", confidence: detection.confidence, label: detection.label });
-          }
-        }
-
-        const dL = Math.round(Math.random() * 4 - 2);
-        const dT = Math.round(Math.random() * 4 - 2);
-        setBoxCoords({
-          left: `${30 + dL}%`,
-          top: `${25 + dT}%`,
-          width: "40%",
-          height: "50%"
-        });
+        setInferenceTime(detection.inferenceTimeMs || 42);
       }
     } catch (err) {
-      console.error("[Camera] AI Detection error:", err);
+      console.error("[Camera] AI Detection background error:", err);
     }
   };
 
+  // Real-time MediaPipe face tracking loop
+  useEffect(() => {
+    if (!isCameraOn) {
+      setFaceDetected(false);
+      setConfidence(0);
+      setLocalConfidence(0);
+      return;
+    }
+
+    let faceDetection = null;
+    let active = true;
+    let checkInterval = null;
+
+    const initFaceDetection = () => {
+      if (!window.FaceDetection) return false;
+
+      try {
+        faceDetection = new window.FaceDetection({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+        });
+
+        faceDetection.setOptions({
+          model: 'short',
+          minDetectionConfidence: 0.65
+        });
+
+        faceDetection.onResults((results) => {
+          if (!active) return;
+
+          if (results.detections && results.detections.length > 0) {
+            // Track the largest face
+            let targetDetection = results.detections[0];
+            if (results.detections.length > 1) {
+              let maxArea = -1;
+              results.detections.forEach((det) => {
+                const area = det.boundingBox.width * det.boundingBox.height;
+                if (area > maxArea) {
+                  maxArea = area;
+                  targetDetection = det;
+                }
+              });
+            }
+
+            const bbox = targetDetection.boundingBox;
+            const x = bbox.xCenter - bbox.width / 2;
+            const y = bbox.yCenter - bbox.height / 2;
+            const w = bbox.width;
+            const h = bbox.height;
+
+            // Smooth tracking coordinates using LERP to prevent jitter
+            setBoxCoords((prev) => {
+              const targetLeft = x * 100;
+              const targetTop = y * 100;
+              const targetWidth = w * 100;
+              const targetHeight = h * 100;
+
+              const prevLeft = parseFloat(prev.left) || targetLeft;
+              const prevTop = parseFloat(prev.top) || targetTop;
+              const prevWidth = parseFloat(prev.width) || targetWidth;
+              const prevHeight = parseFloat(prev.height) || targetHeight;
+
+              const smoothLeft = prevLeft + 0.3 * (targetLeft - prevLeft);
+              const smoothTop = prevTop + 0.3 * (targetTop - prevTop);
+              const smoothWidth = prevWidth + 0.3 * (targetWidth - prevWidth);
+              const smoothHeight = prevHeight + 0.3 * (targetHeight - prevHeight);
+
+              return {
+                left: `${smoothLeft.toFixed(1)}%`,
+                top: `${smoothTop.toFixed(1)}%`,
+                width: `${smoothWidth.toFixed(1)}%`,
+                height: `${smoothHeight.toFixed(1)}%`
+              };
+            });
+
+            setFaceDetected(true);
+            const score = Math.round(targetDetection.score[0] * 100);
+            setLocalConfidence(score);
+            setConfidence(score);
+
+            if (results.detections.length > 1) {
+              setTrackingState("ALERT");
+              setDetectedUser("MULTIPLE PERSONS DETECTED");
+              onDetectionChange({
+                status: "Multiple Persons",
+                confidence: score,
+                label: "Multiple Entities"
+              });
+            } else {
+              setTrackingState("SECURE");
+              setDetectedUser("Authorized User");
+              onDetectionChange({
+                status: "Present",
+                confidence: score,
+                label: "Authorized User"
+              });
+            }
+          } else {
+            setFaceDetected(false);
+            setLocalConfidence(0);
+            setConfidence(0);
+
+            onDetectionChange({
+              status: "Absent",
+              confidence: 0,
+              label: "None"
+            });
+          }
+        });
+
+        // Frame capture loop
+        const trackFrame = async () => {
+          if (!active || !isCameraOn) return;
+
+          const video = webcamRef.current?.video;
+          if (video && video.readyState === 4) {
+            try {
+              await faceDetection.send({ image: video });
+            } catch (err) {
+              console.warn("[MediaPipe] send frame error:", err);
+            }
+          }
+
+          setTimeout(() => {
+            if (active) requestAnimationFrame(trackFrame);
+          }, 33);
+        };
+
+        // Let the video warm up
+        setTimeout(() => {
+          if (active) trackFrame();
+        }, 800);
+
+        return true;
+      } catch (err) {
+        console.error("[Camera] MediaPipe Face Detection initialization failed:", err);
+        return false;
+      }
+    };
+
+    const success = initFaceDetection();
+    if (!success) {
+      // Retry every 500ms until window.FaceDetection becomes available
+      checkInterval = setInterval(() => {
+        if (initFaceDetection()) {
+          clearInterval(checkInterval);
+        }
+      }, 500);
+    }
+
+    return () => {
+      active = false;
+      if (checkInterval) clearInterval(checkInterval);
+      if (faceDetection) {
+        try {
+          faceDetection.close();
+        } catch (e) {}
+      }
+    };
+  }, [isCameraOn]);
+
+  // Background uploader loop to trigger DB logs/locks
   useEffect(() => {
     if (!isCameraOn) return;
 
@@ -109,7 +229,7 @@ export default function CameraFeed({
     }, captureInterval * 1000);
 
     return () => clearInterval(scanInterval);
-  }, [isCameraOn, isSimulating, confidenceThreshold, captureInterval]);
+  }, [isCameraOn, captureInterval]);
 
   useEffect(() => {
     const fpsTimer = setInterval(() => {
@@ -157,16 +277,7 @@ export default function CameraFeed({
       ctx.arc(w / 2, h / 2, 85, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Dashed sweep ring
-      ctx.save();
-      ctx.translate(w / 2, h / 2);
-      ctx.rotate(angle);
-      ctx.strokeStyle = trackingState === "ALERT" ? "rgba(239, 68, 68, 0.15)" : "rgba(99, 102, 241, 0.15)";
-      ctx.setLineDash([5, 15]);
-      ctx.beginPath();
-      ctx.arc(0, 0, 110, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
+
 
       // Mock face wire frame (extremely clean, 0.5px lines)
       if (!isCameraOn) {
@@ -200,7 +311,7 @@ export default function CameraFeed({
         });
       }
 
-      angle += 0.003;
+
       animId = requestAnimationFrame(draw);
     };
 
@@ -237,10 +348,10 @@ export default function CameraFeed({
         )}
 
         {/* Scanning laser line overlay */}
-        {isCameraOn && <div className="scanning-line" />}
+
 
         {/* Face Bounding Box (refined to 1px) */}
-        {isCameraOn && (
+        {isCameraOn && faceDetected && (
           <motion.div
             style={{
               position: "absolute",
@@ -259,13 +370,6 @@ export default function CameraFeed({
             <div className="flex justify-between">
               <span className={`w-2 h-2 border-t border-l ${trackingState === "ALERT" ? "border-rose-500" : "border-emerald-400"}`} />
               <span className={`w-2 h-2 border-t border-r ${trackingState === "ALERT" ? "border-rose-500" : "border-emerald-400"}`} />
-            </div>
-
-            <div className="flex flex-col items-center bg-slate-950/90 backdrop-blur-sm rounded border border-slate-900 px-2 py-0.5 text-[8px] font-mono text-center">
-              <span className={trackingState === "ALERT" ? "text-rose-450 font-bold" : "text-emerald-400 font-bold"}>
-                {trackingState === "ALERT" ? "WARNING" : "SECURE"}
-              </span>
-              <span className="text-slate-300 mt-0.5 truncate max-w-full">{detectedUser}</span>
             </div>
 
             <div className="flex justify-between">
@@ -300,11 +404,9 @@ export default function CameraFeed({
           </div>
           
           <div className="flex flex-col bg-slate-950/90 border border-slate-900 rounded p-1 text-right gap-0.5">
+            <div>CONFIDENCE: {Math.round(confidence)}%</div>
             <div>CLEARANCE: L1</div>
             <div>LAST: {lastDetectionTime}</div>
-            <div className={trackingState === "ALERT" ? "text-rose-500" : "text-emerald-500"}>
-              STATE: {trackingState}
-            </div>
           </div>
         </div>
       </div>
@@ -332,13 +434,7 @@ export default function CameraFeed({
           )}
         </button>
 
-        <div className="flex items-center gap-1.5 text-xs font-bold bg-slate-950/30 border border-slate-900 rounded-lg px-2.5 py-1.5 shrink-0">
-          {trackingState === "ALERT" ? (
-            <span className="text-rose-450 uppercase text-[9px] tracking-wider font-mono">Breach Alert</span>
-          ) : (
-            <span className="text-slate-400 text-[9px] tracking-wider font-mono">Operator Secure</span>
-          )}
-        </div>
+
       </div>
 
     </div>
