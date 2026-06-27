@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -10,3 +11,28 @@ backend/firebase-service-account.json
 backend/*firebase-adminsdk*.json
 node_modules/
 *.log
+=======
+# Python and environment
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+Python-*/
+
+# Virtual environments
+.venv/
+venv/
+Ai/venv/
+
+# Local environment files
+Ai/.env
+.env
+
+# Generated files
+Ai/frame.jpg
+Ai/activity.log
+
+# IDE files
+.vscode/
+.idea/
+>>>>>>> ai
