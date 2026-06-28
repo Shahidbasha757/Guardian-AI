@@ -9,11 +9,13 @@ try:
     from Ai.config import settings
     from Ai.detector import PresenceState, update_presence
     from Ai.afferens_client import analyze_frame
+    from Ai.backend_client import notify_backend_detection
 except ImportError:
     from camera import capture_frame
     from config import settings
     from detector import PresenceState, update_presence
     from afferens_client import analyze_frame
+    from backend_client import notify_backend_detection
 
 app = FastAPI()
 state = PresenceState()
@@ -93,12 +95,22 @@ def sense():
     else:
         append_activity_log(f"Monitoring user: present={analysis.get('person_present', False)}")
 
+    backend_result = None
+    try:
+        backend_result = notify_backend_detection(
+            person_present=analysis.get('person_present', False),
+            confidence=analysis.get('confidence', 0.0),
+        )
+    except Exception as exc:
+        append_activity_log(f"Backend notification failed: {exc}")
+
     return {
         'action': state.current_mode,
         'person_present': analysis.get('person_present', False),
         'confidence': analysis.get('confidence', 0.0),
         'reason': analysis.get('reason', 'no details'),
         'last_seen': state.last_present.isoformat() + 'Z',
+        'backend': backend_result,
     }
 
 
@@ -108,6 +120,8 @@ def status():
         'action': state.current_mode,
         'last_seen': state.last_present.isoformat() + 'Z',
         'absence_timeout_seconds': settings.absence_timeout_seconds,
+        'backend_detect_url': settings.backend_detect_url,
+        'mock_afferens': settings.mock_afferens,
     }
 
 

@@ -62,6 +62,35 @@ LOCK_ON_ABSENCE=True
 uvicorn app:app --host 0.0.0.0 --port 3000
 ```
 
+## Start Full Application
+
+Use the launcher from the project root:
+
+```powershell
+cd C:\Users\nikhi\OneDrive\Documents\GitHub\ACHIVERS
+.\start-guardian.ps1
+```
+
+Or double-click:
+
+```text
+start-guardian.bat
+```
+
+This opens three separate server windows:
+
+- AI service: `http://127.0.0.1:3000/docs`
+- Backend API: `http://127.0.0.1:8080/docs`
+- Frontend app: `http://127.0.0.1:5173`
+
+Keep all three windows open while using the app.
+
+To stop the app:
+
+```powershell
+.\stop-guardian.ps1
+```
+
 ## Endpoints
 
 - `GET /sense` — captures a webcam frame, sends it for analysis, and returns the current action

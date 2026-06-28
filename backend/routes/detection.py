@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 import httpx
 
+from backend.config.settings import get_settings
 from backend.routes.dependencies import get_decision_service
 from backend.schemas.detection import DetectionRequest
 from backend.services.decision_service import DecisionService
@@ -23,8 +24,9 @@ async def detect(
     ai_result = None
     if frame:
         try:
+            settings = get_settings()
             async with httpx.AsyncClient(timeout=10.0) as client:
-                ai_resp = await client.post("http://localhost:3000/detect", json={"frame": frame})
+                ai_resp = await client.post(f"{settings.ai_service_url.rstrip('/')}/detect", json={"frame": frame})
                 if ai_resp.status_code == 200:
                     ai_result = ai_resp.json()
         except Exception as exc:
@@ -85,5 +87,32 @@ async def detect(
         "action": decision.action,
         "status": decision.status,
     })
+
+
+@router.get("/ai/status")
+async def ai_status() -> dict:
+    settings = get_settings()
+    ai_base_url = settings.ai_service_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{ai_base_url}/status")
+            response.raise_for_status()
+            return success_response(
+                "AI service connected.",
+                {
+                    "connected": True,
+                    "url": ai_base_url,
+                    "status": response.json(),
+                },
+            )
+    except Exception as exc:
+        return success_response(
+            "AI service is not reachable.",
+            {
+                "connected": False,
+                "url": ai_base_url,
+                "error": str(exc),
+            },
+        )
 
 

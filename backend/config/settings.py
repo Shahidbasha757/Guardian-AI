@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     firebase_credentials_path: Optional[str] = None
     firebase_credentials_json: Optional[str] = None
     firebase_web_api_key: Optional[str] = None
+    ai_service_url: str = "http://127.0.0.1:3000"
 
     enable_local_auth_fallback: bool = True
     default_monitoring_active: bool = True
